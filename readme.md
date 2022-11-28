@@ -1,7 +1,9 @@
 # simpleScene
-This is a simple scene built with OpenGL.
-The asset of Timmy is from https://www.mixamo.com
-The assets of bucket and floor are from https://polyhaven.com
+This is a simple scene built with OpenGL.  
+
+The asset of Timmy is from https://www.mixamo.com. 
+
+The assets of bucket and floor are from https://polyhaven.com. 
 
 Part 1 shows the loaded shape and texture
 ![image](https://github.com/wangltsss/simpleScene/blob/main/examples/timmy_tex.png)
