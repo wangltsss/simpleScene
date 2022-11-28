@@ -1,6 +1,6 @@
 //
 //  main.cpp
-//  assignment3
+//  part3
 //
 //  Created by 王沈同 on 2022-11-20.
 //
@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/rotate_vector.hpp>
 using namespace glm;
 #include <tiny_obj_loader.h>
 #include <iostream>
@@ -70,25 +71,78 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height){
 // Shaders Configuration
 const char *vertexShaderSource = "#version 330 core\n"
     "layout (location = 0) in vec3 aPos;\n"
-    //"layout (location = 1) in vec3 aNorm;\n"
+    "layout (location = 1) in vec3 aNorm;\n"
     "layout (location = 2) in vec2 aTex;\n"
     "uniform mat4 MVP;\n"
-    //"out vec3 Normal;\n"
+    "out vec3 Position;\n"
+    "out vec3 Normal;\n"
     "out vec2 UV;\n"
     "void main()\n"
     "{\n"
     "   UV = aTex;\n"
-    //"   Normal = aNorm;\n"
+    "   Normal = aNorm;\n"
+    "   Position = aPos;\n"
     "   gl_Position = MVP * vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
     "}\0";
 const char *fragmentShaderSource = "#version 330 core\n"
     "uniform sampler2D myTexture;\n"
-    //"in vec3 Normal;\n"
+    "uniform vec3 u_Atten;\n"
+    "uniform vec3 u_lightPos;\n"
+    "uniform vec3 u_spotDirR;\n"
+    "uniform vec3 u_spotDirG;\n"
+    "uniform vec3 u_spotDirB;\n"
+    "uniform float u_cutoff;\n"
+    "in vec3 Normal;\n"
     "in vec2 UV;\n"
+    "in vec3 Position;\n"
     "out vec4 FragColor;\n"
     "void main()\n"
     "{\n"
-    "   FragColor = texture(myTexture, UV);\n"
+    "   vec3 ambientColor = vec3(0.2, 0.2, 0.2);\n"
+    "   vec3 diffuseColorR = vec3(1.0, 0.0, 0.0);\n"
+    "   vec3 diffuseColorG = vec3(0.0, 1.0, 0.0);\n"
+    "   vec3 diffuseColorB = vec3(0.0, 0.0, 1.0);\n"
+
+    "   vec3 lightDir = normalize(u_lightPos - Position);\n"
+    "   float dist = distance(Position, u_lightPos);\n"
+    "   vec4 objColor = texture(myTexture, UV);\n"
+    "   float diff = max(dot(normalize(Normal), lightDir), 0.0);\n"
+    "   float attenuation = 1.0/(u_Atten.x + u_Atten.y * dist + u_Atten.z * dist * dist);\n"
+
+    "   float thetaR = dot(lightDir, normalize(-u_spotDirR));\n"
+    "   float thetaG = dot(lightDir, normalize(-u_spotDirG));\n"
+    "   float thetaB = dot(lightDir, normalize(-u_spotDirB));\n"
+    
+    "   vec4 ambient = vec4(ambientColor, 1.0) * objColor;\n"
+    "   vec4 diffuseR = diff * objColor * vec4(diffuseColorR, 1.0) * attenuation;\n"
+    "   vec4 diffuseG = diff * objColor * vec4(diffuseColorG, 1.0) * attenuation;\n"
+    "   vec4 diffuseB = diff * objColor * vec4(diffuseColorB, 1.0) * attenuation;\n"
+
+    "   if(thetaR > u_cutoff && thetaG > u_cutoff && thetaB > u_cutoff){\n"
+    "       FragColor = ambient * 3 + diffuseR + diffuseG + diffuseB;\n"
+    "   }\n"
+    "   else if(thetaB > u_cutoff && thetaG > u_cutoff){\n"
+    "       FragColor = ambient * 3 + diffuseB + diffuseG;\n"
+    "   }\n"
+    "   else if(thetaB > u_cutoff && thetaR > u_cutoff){\n"
+    "       FragColor = ambient * 3 + diffuseB + diffuseR;\n"
+    "   }\n"
+    "   else if(thetaG > u_cutoff && thetaR > u_cutoff){\n"
+    "       FragColor = ambient * 3 + diffuseG  + diffuseR;\n"
+    "   }\n"
+
+    "   else if(thetaR > u_cutoff){\n"
+    "       FragColor = ambient * 3 + diffuseR;\n"
+    "   }\n"
+    "   else if(thetaG > u_cutoff){\n"
+    "       FragColor = ambient * 3 + diffuseG;\n"
+    "   }\n"
+    "   else if(thetaB > u_cutoff){\n"
+    "       FragColor = ambient * 3 + diffuseB;\n"
+    "   }\n"
+    "   else{\n"
+    "       FragColor = ambient * 3;\n"
+    "   }\n"
     "}\0";
 
 
@@ -179,6 +233,12 @@ int main()
     
     // get a handle for MVP uniform
     GLuint MatrixID = glGetUniformLocation(shaderProgram, "MVP");
+    unsigned int AttenID = glGetUniformLocation(shaderProgram, "u_Atten");
+    unsigned int LightID = glGetUniformLocation(shaderProgram, "u_lightPos");
+    unsigned int SpotDirRID = glGetUniformLocation(shaderProgram, "u_spotDirR");
+    unsigned int SpotDirGID = glGetUniformLocation(shaderProgram, "u_spotDirG");
+    unsigned int SpotDirBID = glGetUniformLocation(shaderProgram, "u_spotDirB");
+    unsigned int CutoffID = glGetUniformLocation(shaderProgram, "u_cutoff");
     
     
     // model, view, projection matrices definition
@@ -309,14 +369,9 @@ int main()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, x0, y0, 0, GL_RGB,
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, x1, y1, 0, GL_RGB,
     GL_UNSIGNED_BYTE, tdata1);//define the texture using image data
     stbi_image_free(tdata1);//don’t forget to release the image data
-    
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
     
     unsigned int VAO1;
     glGenVertexArrays(1, &VAO1);
@@ -350,6 +405,95 @@ int main()
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     
     
+    
+    std::vector<float> vbuffer2;
+    std::vector<float> nbuffer2;
+    std::vector<float> tbuffer2;
+    
+    char filename2[] = "/Users/wangst/Documents/McMaster/2022 Fall/CS3GC3/assignment3/asset/timmy.obj";
+    tinyobj::attrib_t attrib2;
+    std::vector<tinyobj::shape_t> shapes2;
+    std::vector<tinyobj::material_t> materials2;
+    // tinyobj load obj
+    std::string warn2, err2;
+    bool bTriangulate2 = true;
+    bool bSuc2 = tinyobj::LoadObj(&attrib2, &shapes2, &materials2, &warn2, &err2, filename2, nullptr, bTriangulate2);
+    for (auto id: shapes2[0].mesh.indices){
+        int vid = id.vertex_index;
+        int nid = id.normal_index;
+        int tid = id.texcoord_index;
+        
+        vbuffer2.push_back(attrib2.vertices[vid*3]);
+        vbuffer2.push_back(attrib2.vertices[vid*3+1]);
+        vbuffer2.push_back(attrib2.vertices[vid*3+2]);
+        nbuffer2.push_back(attrib2.normals[nid*3]);
+        nbuffer2.push_back(attrib2.normals[nid*3+1]);
+        nbuffer2.push_back(attrib2.normals[nid*3+2]);
+        tbuffer2.push_back(attrib2.texcoords[tid*2]);
+        tbuffer2.push_back(attrib2.texcoords[tid*2+1]);
+    }
+    
+    int x2, y2, n2;
+    char tex_path2[] = "/Users/wangst/Documents/McMaster/2022 Fall/CS3GC3/assignment3/asset/timmy.png";
+    stbi_info(tex_path2, &x2, &y2, &n2);
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char *tdata2 = stbi_load(tex_path2, &x2, &y2, &n2, 0);
+    
+    unsigned int texture2;
+    glGenTextures(1, &texture2);
+    glBindTexture(GL_TEXTURE_2D, texture2);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, x2, y2, 0, GL_RGB,
+    GL_UNSIGNED_BYTE, tdata2);//define the texture using image data
+    stbi_image_free(tdata2);//don’t forget to release the image data
+    
+    unsigned int VAO2;
+    glGenVertexArrays(1, &VAO2);
+    
+    GLuint position_VBO2;
+    glGenBuffers(1, &position_VBO2);
+    glBindBuffer(GL_ARRAY_BUFFER, position_VBO2);
+    glBufferData(GL_ARRAY_BUFFER, vbuffer2.size() * sizeof(float), &vbuffer2[0], GL_STATIC_DRAW);
+
+    GLuint normal_VBO2;
+    glGenBuffers(1, &normal_VBO2);
+    glBindBuffer(GL_ARRAY_BUFFER, normal_VBO2);
+    glBufferData(GL_ARRAY_BUFFER, nbuffer2.size() * sizeof(float), &nbuffer2[0], GL_STATIC_DRAW);
+    
+    GLuint texcoord_VBO2;
+    glGenBuffers(1, &texcoord_VBO2);
+    glBindBuffer(GL_ARRAY_BUFFER, texcoord_VBO2);
+    glBufferData(GL_ARRAY_BUFFER, tbuffer2.size() * sizeof(float), &tbuffer2[0], GL_STATIC_DRAW);
+    
+    glBindVertexArray(VAO2);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, position_VBO2);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    
+    glEnableVertexAttribArray(1);
+    glBindBuffer(GL_ARRAY_BUFFER, normal_VBO2);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    
+    glEnableVertexAttribArray(2);
+    glBindBuffer(GL_ARRAY_BUFFER, texcoord_VBO2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    
+    
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    
+    float kc = 1.0f, kl = 0.35*1e-4, kq = 0.44*1e-4;
+    glm::vec3 spotDirR(50, -200, -50);
+    glm::vec3 spotDirG(-50, -200, -50);
+    glm::vec3 spotDirB(0, -200, 50);
+    float theta = 0.05f;
+    //printf("[%f, %f, %f]\n", spotDirR[0], spotDirR[1], spotDirR[2]);
+    
     while (!glfwWindowShouldClose(window))
     {
         processInput(window);
@@ -361,18 +505,41 @@ int main()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         
         glUseProgram(shaderProgram);
+        /*
+        glm::mat4 rotationMat(1);
+        rotationMat = glm::rotate(rotationMat, theta, glm::vec3(0, 1, 0));
+        spotDirR = glm::vec3(rotationMat * glm::vec4(spotDirR, 1));
+        spotDirG = glm::vec3(rotationMat * glm::vec4(spotDirG, 1));
+        spotDirB = glm::vec3(rotationMat * glm::vec4(spotDirB, 1));
+        */
         
-        
+        spotDirR = glm::rotate(spotDirR, theta, glm::vec3(0, 1, 0));
+        spotDirG = glm::rotate(spotDirG, theta, glm::vec3(0, 1, 0));
+        spotDirB = glm::rotate(spotDirB, theta, glm::vec3(0, 1, 0));
+    
         //draw things
         glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &MVP[0][0]);
+        glUniform3f(SpotDirRID, spotDirR[0], spotDirR[1], spotDirR[2]);
+        glUniform3f(SpotDirGID, spotDirG[0], spotDirG[1], spotDirG[2]);
+        glUniform3f(SpotDirBID, spotDirB[0], spotDirB[1], spotDirB[2]);
+        glUniform3f(AttenID, kc, kl, kq);
+        glUniform3f(LightID, 0, 200, 0);
+        glUniform1f(CutoffID, glm::cos(M_PI/6.0f));
         
         glBindTexture(GL_TEXTURE_2D, texture0);
         glBindVertexArray(VAO0);
         glDrawArrays(GL_TRIANGLES, 0, vbuffer0.size());
         
+        
         glBindTexture(GL_TEXTURE_2D, texture1);
         glBindVertexArray(VAO1);
         glDrawArrays(GL_TRIANGLES, 0, vbuffer1.size());
+        
+        
+        glBindTexture(GL_TEXTURE_2D, texture2);
+        glBindVertexArray(VAO2);
+        glDrawArrays(GL_TRIANGLES, 0, vbuffer2.size());
+        
         
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -386,3 +553,5 @@ int main()
     glfwTerminate();
     return 0;
 }
+
+
